@@ -24,6 +24,16 @@ pip install speciesnet==5.0.3 --use-pep517 # ML dependencies (torch, onnx, etc.)
 python scripts/pipeline/run_pipeline.py
 ```
 
+`auto` is the default mode (`run_pipeline.py:176`). Flags that pass through to `build_index.py` / `download_drive.py`:
+
+- `--drive_root <folder_id>` — root to index (default: `FOLDER_ID` in `scripts/config.py`)
+- `--start_folders <id1,id2,...>` — start indexing from specific subfolders instead of the root
+- `--per_folder` — name output `drive_index_<tag>.csv` instead of overwriting `drive_index.csv`
+- `--index <path>` — reuse an existing index CSV (skips re-indexing)
+- `--resume` — resume from checkpoint (both index + download)
+- `--max_files <n>` / `--max_downloads <n>` — per-run overrides of `MAX_DOWNLOADS`
+- `--upload` / `--overwrite` — upload results to Drive at end (see below)
+
 **Manual mode (process a local folder of images):**
 ```bash
 python scripts/pipeline/run_pipeline.py --mode manual --folder /path/to/images
@@ -51,13 +61,17 @@ python scripts/pipeline/validate_output.py       # (Optional) Validate outputs
 **Upload results to Drive (production — requires permission):**
 ```bash
 python scripts/drive_upload/upload_to_drive.py [--overwrite]
+# or integrated into the pipeline:
+python scripts/pipeline/run_pipeline.py --upload [--overwrite]
 ```
+
+Upload target: each local `by_location/<Camera>.csv` is written to the **site-level parent folder** (one folder up from the deployment folder) in Drive as a single shared `wildlife_results.csv`. Without `--overwrite`, new rows are appended and duplicates are skipped via the compound key `DeploymentFolder|Image#`.
 
 ## No Test Suite or Linting
 
 There is no test framework, linter, or CI/CD configured. Testing is done manually with small batch sizes.
 
-To control how many images are indexed/downloaded, edit `MAX_DOWNLOADS` in `scripts/config.py` (default: 300). This single value is used by both `build_index.py` (as `MAX_ROWS`) and `download_drive.py`. You can also override per-run via CLI: `--max_files` for indexing, `--max_downloads` for downloading.
+To control how many images are indexed/downloaded, edit `MAX_DOWNLOADS` in `scripts/config.py` (current value: 200). This single value is used by both `build_index.py` (as `MAX_ROWS`) and `download_drive.py`. You can also override per-run via CLI: `--max_files` for indexing, `--max_downloads` for downloading.
 
 ## Architecture
 
@@ -81,7 +95,9 @@ All intermediate data flows through CSV/JSON files in `data/outputs/`. The `file
 
 ### Important Conventions
 
-- **File naming:** Downloaded images use `<file_id>__<original_name>` format — `file_id` is recovered by splitting on `__`
+- **Download layout:** Downloads mirror the full Drive folder tree under `data/staging/<site>/<deployment>/<file_id>__<original_name>.jpg`. `file_id` is recovered by splitting filename on `__`.
+- **Download concurrency:** 16-thread pool in `download_drive.py` with exponential-backoff retry (max 3 attempts).
+- **File selection order:** `build_index.py` is a DFS of the Drive tree — which subtree is walked first is Drive's natural listing order, not deterministic. Rows are sorted alphabetically by `drive_path` before `drive_index.csv` is written. `download_drive.py` then takes the first `MAX_DOWNLOADS` items from that index, so selecting a specific camera/deployment today requires `--start_folders <folder_id>` (or hand-editing the index).
 - **Burst detection:** Images from the same camera folder within 300 seconds are grouped into observation bursts with shared `ObservationID`
 - **SpeciesNet geofencing:** Hardcoded to `country=USA, admin1_region=CA` in `run_speciesnet.py`
 - **Species mapping:** `run_inference.py` maps SpeciesNet taxonomy strings (e.g., `mammalia;carnivora;canidae;canis;canis_latrans`) to simplified labels (e.g., `coyote`)
