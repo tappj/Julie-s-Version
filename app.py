@@ -112,6 +112,7 @@ _jobs: dict[str, dict[str, Any]] = {}
 
 
 SNAPSHOT_FILES = [
+    "drive_index.csv",
     "manifest.csv",
     "manifest_new.csv",
     "metadata.csv",
@@ -120,6 +121,61 @@ SNAPSHOT_FILES = [
     "speciesnet_results.json",
     "speciesnet_review.csv",
 ]
+
+# Files and dirs cleared before each UI-triggered run. This prevents state from a
+# previous run (especially speciesnet_results.json + accumulated data/staging)
+# from breaking a new run targeting a different set of folders. Per-run snapshots
+# in data/outputs/runs/<job_id>/ preserve history.
+RESET_FILES = [
+    "drive_index.csv",
+    "manifest.csv",
+    "manifest_new.csv",
+    "metadata.csv",
+    "ml_outputs.csv",
+    "speciesnet_results.csv",
+    "speciesnet_results.json",
+    "speciesnet_review.csv",
+    ".download_progress.csv",
+    "download_log.csv",
+    "cache/processed_file_ids.txt",
+]
+RESET_DIRS = [
+    "by_location",
+]
+
+
+def _reset_pipeline_state() -> list[str]:
+    """Clear shared pipeline artifacts before a new run. Returns list of cleared paths for the log."""
+    outputs_dir = REPO_ROOT / "data" / "outputs"
+    staging_dir = REPO_ROOT / "data" / "staging"
+    cleared: list[str] = []
+
+    for rel in RESET_FILES:
+        p = outputs_dir / rel
+        if p.exists():
+            try:
+                p.unlink()
+                cleared.append(str(p.relative_to(REPO_ROOT)))
+            except Exception:
+                pass
+
+    for rel in RESET_DIRS:
+        p = outputs_dir / rel
+        if p.exists() and p.is_dir():
+            try:
+                shutil.rmtree(p)
+                cleared.append(str(p.relative_to(REPO_ROOT)) + "/")
+            except Exception:
+                pass
+
+    if staging_dir.exists():
+        try:
+            shutil.rmtree(staging_dir)
+            cleared.append(str(staging_dir.relative_to(REPO_ROOT)) + "/")
+        except Exception:
+            pass
+
+    return cleared
 
 
 def _snapshot_outputs(run_dir: Path) -> dict[str, Any]:
@@ -153,12 +209,38 @@ def _snapshot_outputs(run_dir: Path) -> dict[str, Any]:
     return summary
 
 
+def _emit_log(job: dict, log_file, line: str) -> None:
+    """Append a synthetic line to both the log file and live subscribers."""
+    if not line.endswith("\n"):
+        line = line + "\n"
+    log_file.write(line)
+    with _jobs_lock:
+        job["log"].append(line.rstrip("\n"))
+        for q_ in list(job["subscribers"]):
+            try:
+                q_.put_nowait(line)
+            except queue.Full:
+                pass
+
+
 def _job_worker(job_id: str, cmd: list[str], run_dir: Path) -> None:
     job = _jobs[job_id]
     log_path = run_dir / "pipeline.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
     with open(log_path, "w", encoding="utf-8", buffering=1) as log_file:
+        # Clear shared state so a previous run's outputs don't contaminate this one.
+        cleared = _reset_pipeline_state()
+        _emit_log(job, log_file, "=" * 80)
+        _emit_log(job, log_file, "STEP: Reset shared pipeline state")
+        _emit_log(job, log_file, "=" * 80)
+        if cleared:
+            for c in cleared:
+                _emit_log(job, log_file, f"  removed {c}")
+        else:
+            _emit_log(job, log_file, "  (nothing to clear)")
+        _emit_log(job, log_file, "")
+
         proc = subprocess.Popen(
             cmd,
             cwd=str(REPO_ROOT),
@@ -352,13 +434,14 @@ def api_run():
     run_dir = RUNS_DIR / job_id
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    out_index = run_dir / "drive_index.csv"
-
+    # Let build_index.py write to the default shared path (data/outputs/drive_index.csv).
+    # make_output.py and upload_to_drive.py both hardcode that path, so routing the
+    # index elsewhere via --out_index would break downstream steps. The snapshot step
+    # at the end of _job_worker copies drive_index.csv into the per-run dir for history.
     cmd: list[str] = [
         sys.executable,
         "scripts/pipeline/run_pipeline.py",
         "--start_folders", ",".join(str(f) for f in folders),
-        "--out_index", str(out_index),
     ]
     if max_files is not None:
         try:

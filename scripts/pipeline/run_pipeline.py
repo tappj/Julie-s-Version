@@ -19,6 +19,22 @@ PYTHON = sys.executable
 STAGING_DIR = Path("data/staging")
 STAGING_BACKUP = Path("data/staging_full_backup")
 
+DRIVE_INDEX_PATH = Path("data/outputs/drive_index.csv")
+CHUNKS_DIR = Path("data/outputs/chunks")
+
+# Files cleared between chunks so a previous chunk's state doesn't break the next one.
+PER_CHUNK_RESET = [
+    "data/outputs/speciesnet_results.json",
+    "data/outputs/speciesnet_results.csv",
+    "data/outputs/speciesnet_review.csv",
+    "data/outputs/manifest.csv",
+    "data/outputs/manifest_new.csv",
+    "data/outputs/metadata.csv",
+    "data/outputs/ml_outputs.csv",
+    "data/outputs/.download_progress.csv",
+    "data/outputs/download_log.csv",
+]
+
 
 def parse_id_list(value: str | None) -> list[str]:
     if not value:
@@ -92,6 +108,156 @@ def manifest_has_rows(path: str) -> bool:
     except Exception:
         return False
     return False
+
+
+def count_index_rows(path: Path) -> int:
+    if not path.exists():
+        return 0
+    with path.open("r", newline="", encoding="utf-8") as f:
+        reader = csv.reader(f)
+        if next(reader, None) is None:
+            return 0
+        return sum(1 for _ in reader)
+
+
+def split_index_into_chunks(src: Path, chunks_dir: Path, chunk_size: int) -> list[Path]:
+    chunks_dir.mkdir(parents=True, exist_ok=True)
+    paths: list[Path] = []
+    with src.open("r", newline="", encoding="utf-8") as f:
+        reader = csv.reader(f)
+        header = next(reader, None)
+        if not header:
+            return paths
+
+        def _flush(buf: list[list[str]], idx: int) -> Path:
+            out = chunks_dir / f"chunk_{idx:04d}_index.csv"
+            with out.open("w", newline="", encoding="utf-8") as wf:
+                w = csv.writer(wf)
+                w.writerow(header)
+                w.writerows(buf)
+            return out
+
+        buffer: list[list[str]] = []
+        n = 0
+        for row in reader:
+            buffer.append(row)
+            if len(buffer) >= chunk_size:
+                n += 1
+                paths.append(_flush(buffer, n))
+                buffer = []
+        if buffer:
+            n += 1
+            paths.append(_flush(buffer, n))
+    return paths
+
+
+def append_csv_rows(src: Path, dst: Path) -> None:
+    if not src.exists():
+        return
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    first_write = not dst.exists()
+    with src.open("r", newline="", encoding="utf-8") as sf:
+        reader = csv.reader(sf)
+        header = next(reader, None)
+        if not header:
+            return
+        mode = "w" if first_write else "a"
+        with dst.open(mode, newline="", encoding="utf-8") as df:
+            w = csv.writer(df)
+            if first_write:
+                w.writerow(header)
+            for row in reader:
+                w.writerow(row)
+
+
+def clear_per_chunk_state() -> None:
+    for p in PER_CHUNK_RESET:
+        path = Path(p)
+        if path.exists():
+            try:
+                path.unlink()
+            except Exception:
+                pass
+    if STAGING_DIR.exists():
+        shutil.rmtree(STAGING_DIR)
+
+
+def run_chunked_auto(args: argparse.Namespace, chunk_paths: list[Path]) -> None:
+    """Run auto-mode pipeline one chunk at a time. Assumes the full index
+    already exists on disk at args.index."""
+    cumulative_manifest = CHUNKS_DIR / "cumulative_manifest.csv"
+    cumulative_metadata = CHUNKS_DIR / "cumulative_metadata.csv"
+    cumulative_ml_outputs = CHUNKS_DIR / "cumulative_ml_outputs.csv"
+
+    for p in (cumulative_manifest, cumulative_metadata, cumulative_ml_outputs):
+        if p.exists():
+            p.unlink()
+
+    total = len(chunk_paths)
+    for i, chunk_index in enumerate(chunk_paths, start=1):
+        print(f"\n{'#' * 80}")
+        print(f"# CHUNK {i}/{total}: {chunk_index.name}")
+        print(f"{'#' * 80}")
+
+        clear_per_chunk_state()
+
+        run_step(f"[Chunk {i}/{total}] Download Images",
+                 [PYTHON, "scripts/pipeline/download_drive.py", "--index", str(chunk_index)])
+
+        run_step(f"[Chunk {i}/{total}] Create Manifest",
+                 [PYTHON, "scripts/pipeline/make_manifest.py",
+                  "--batch_size", str(args.batch_size)])
+
+        manifest_path = "data/outputs/manifest.csv"
+
+        run_step(f"[Chunk {i}/{total}] Extract Metadata (EXIF)",
+                 [PYTHON, "scripts/pipeline/extract_metadata.py", "--manifest", manifest_path])
+        run_step(f"[Chunk {i}/{total}] Run SpeciesNet",
+                 [PYTHON, "scripts/ml/run_speciesnet.py"])
+        run_step(f"[Chunk {i}/{total}] Postprocess SpeciesNet",
+                 [PYTHON, "scripts/ml/postprocess_speciesnet.py",
+                  "--burst_window", str(args.ml_burst_window)])
+        run_step(f"[Chunk {i}/{total}] Parse ML Results",
+                 [PYTHON, "scripts/ml/run_inference.py", "--provider", "speciesnet"])
+        run_step(f"[Chunk {i}/{total}] Extract Metadata (merge ML)",
+                 [PYTHON, "scripts/pipeline/extract_metadata.py", "--manifest", manifest_path])
+
+        chunk_archive = CHUNKS_DIR / f"chunk_{i:04d}"
+        chunk_archive.mkdir(parents=True, exist_ok=True)
+        for fname in ("manifest.csv", "metadata.csv", "ml_outputs.csv",
+                      "speciesnet_results.csv", "speciesnet_results.json",
+                      "speciesnet_review.csv"):
+            src = Path("data/outputs") / fname
+            if src.exists():
+                shutil.copy2(src, chunk_archive / fname)
+
+        append_csv_rows(Path("data/outputs/manifest.csv"), cumulative_manifest)
+        append_csv_rows(Path("data/outputs/metadata.csv"), cumulative_metadata)
+        append_csv_rows(Path("data/outputs/ml_outputs.csv"), cumulative_ml_outputs)
+
+    print(f"\n{'#' * 80}")
+    print(f"# FINALIZING: merging {total} chunks into final output")
+    print(f"{'#' * 80}")
+
+    if cumulative_manifest.exists():
+        shutil.copy2(cumulative_manifest, "data/outputs/manifest.csv")
+    if cumulative_metadata.exists():
+        shutil.copy2(cumulative_metadata, "data/outputs/metadata.csv")
+    if cumulative_ml_outputs.exists():
+        shutil.copy2(cumulative_ml_outputs, "data/outputs/ml_outputs.csv")
+
+    run_step("Generate Output CSVs", [
+        PYTHON, "scripts/pipeline/make_output.py",
+        "--manifest", "data/outputs/manifest.csv",
+        "--burst_seconds", str(args.burst_seconds),
+        "--burst_export", args.burst_export,
+    ])
+
+    if args.upload:
+        upload_cmd = [PYTHON, "scripts/drive_upload/upload_to_drive.py"]
+        if args.overwrite:
+            upload_cmd += ["--overwrite"]
+        run_step("Upload Results to Drive", upload_cmd)
 
 
 def build_steps(args: argparse.Namespace) -> list[tuple[str, list[str]]]:

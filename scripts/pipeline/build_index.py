@@ -80,6 +80,32 @@ def parse_drive_path(drive_path: str):
     return site, deployment_folder, deployment_id, status
 
 
+def resolve_folder_path(drive, folder_id: str, root_id: str) -> str:
+    """Walk parents from folder_id up to root_id. Return slash-joined path (excluding root).
+
+    This lets a --start_folders crawl produce the same drive_path shape as a root crawl
+    would, so site/deployment_folder parsing stays correct no matter which depth the user picks.
+    """
+    parts: list[str] = []
+    current = folder_id
+    guard = 0
+    while current and current != root_id and guard < 50:
+        try:
+            meta = drive.files().get(
+                fileId=current,
+                fields="id, name, parents",
+                supportsAllDrives=True,
+            ).execute()
+        except HttpError:
+            break
+        parts.append(meta.get("name", ""))
+        parents = meta.get("parents", [])
+        current = parents[0] if parents else None
+        guard += 1
+    parts.reverse()
+    return "/".join(p for p in parts if p)
+
+
 def list_children_with_retry(drive, folder_id: str):
     """List children with retries for transient errors"""
     delay = RETRY_DELAY
@@ -194,7 +220,19 @@ def main():
     if not start_ids:
         start_ids = [FOLDER_ID]
 
-    stack = [(fid, "") for fid in start_ids]
+    stack: list[tuple[str, str]] = []
+    for fid in start_ids:
+        if fid == FOLDER_ID:
+            initial_prefix = ""
+        else:
+            try:
+                initial_prefix = resolve_folder_path(drive, fid, FOLDER_ID)
+            except Exception as e:
+                print(f"warning: could not resolve path for {fid}: {e}")
+                initial_prefix = ""
+            if initial_prefix:
+                print(f"start folder {fid} resolved to: {initial_prefix}")
+        stack.append((fid, initial_prefix))
     seen = set()
     folders_done = 0
 
