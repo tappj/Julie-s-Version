@@ -315,8 +315,35 @@
     <!-- LEFT PANEL: folder picker + run controls -->
     <section class="panel">
       <div class="panel-header">
-        <h2>Select folders to process</h2>
+        <h2 id="panel-title">Select folders to process</h2>
         <span class="hint" id="folder-hint">Wildlife Camera Photo Database</span>
+      </div>
+
+      <div class="form-row" style="padding: 10px 18px 4px; gap: 16px; border-bottom: 1px solid var(--border);">
+        <label style="min-width: 0; font-weight: 500; color: var(--text);">Source</label>
+        <label style="min-width: 0; display: flex; align-items: center; gap: 6px; cursor: pointer;">
+          <input type="radio" name="source" value="drive" checked /> Google Drive
+        </label>
+        <label style="min-width: 0; display: flex; align-items: center; gap: 6px; cursor: pointer;">
+          <input type="radio" name="source" value="local" /> This computer
+        </label>
+      </div>
+
+      <div id="local-controls" style="display: none; padding: 10px 18px; border-bottom: 1px solid var(--border);">
+        <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px;">
+          <input type="text" id="local-folder" placeholder="Paste folder path (e.g. C:\Users\Julie\Pictures\Camera)"
+                 style="flex: 1; padding: 7px 9px; border: 1px solid var(--border); border-radius: 6px; font-family: inherit; font-size: 13px;" />
+          <button class="btn" id="btn-browse">Browse…</button>
+        </div>
+        <div id="local-folder-info" style="font-size: 12px; color: var(--muted); min-height: 16px;"></div>
+        <div id="target-controls" style="display: none; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border);">
+          <div style="font-size: 12px; color: var(--muted); margin-bottom: 6px;">
+            Upload target: pick a Drive folder below, then check <b>Upload to Drive</b>.
+          </div>
+          <div id="target-folder-label" style="font-size: 13px; color: var(--text);">
+            <span style="color: var(--muted); font-style: italic;">No target folder selected.</span>
+          </div>
+        </div>
       </div>
 
       <div class="panel-body">
@@ -387,7 +414,57 @@ const state = {
   selectedMeta: new Map(), // id -> name
   currentJob: null,
   eventSource: null,
+  source: "drive",           // "drive" | "local"
+  localFolder: "",
+  targetFolder: null,        // { id, name } — drive folder to upload to in local mode
 };
+
+function getSource() {
+  return document.querySelector('input[name="source"]:checked').value;
+}
+
+function setSourceUI(src) {
+  state.source = src;
+  const drive = src === "drive";
+  document.getElementById("panel-title").textContent =
+    drive ? "Select folders to process" : "Select local folder";
+  document.getElementById("local-controls").style.display = drive ? "none" : "block";
+  // In local mode the tree is used ONLY to pick an upload target (single select).
+  document.getElementById("target-controls").style.display = drive ? "none" : "block";
+  // Clear any conflicting selection state
+  state.selected.clear();
+  state.selectedMeta.clear();
+  state.targetFolder = null;
+  renderSelected();
+  renderTargetLabel();
+  document.getElementById("estimate").innerHTML = "";
+  refreshRunButton();
+}
+
+function refreshRunButton() {
+  const btn = document.getElementById("btn-run");
+  if (state.source === "drive") {
+    btn.disabled = state.selected.size === 0;
+  } else {
+    btn.disabled = !state.localFolder;
+  }
+}
+
+function renderTargetLabel() {
+  const el = document.getElementById("target-folder-label");
+  if (!el) return;
+  if (state.targetFolder) {
+    el.innerHTML = `📁 <b>${state.targetFolder.name}</b> <button class="chip" style="border:none;background:#E6F0F9;margin-left:6px;cursor:pointer;" onclick="clearTargetFolder()">clear</button>`;
+  } else {
+    el.innerHTML = '<span style="color: var(--muted); font-style: italic;">No target folder selected.</span>';
+  }
+}
+
+function clearTargetFolder() {
+  state.targetFolder = null;
+  renderTargetLabel();
+  renderTree();
+}
 
 async function api(path, opts={}) {
   const res = await fetch(API + path, opts);
@@ -456,7 +533,10 @@ function renderNode(node) {
 
   const row = document.createElement("div");
   row.className = "tree-node";
-  if (state.selected.has(node.id)) row.classList.add("selected");
+  const isSelected = state.source === "local"
+    ? (state.targetFolder && state.targetFolder.id === node.id)
+    : state.selected.has(node.id);
+  if (isSelected) row.classList.add("selected");
   if (node.open) row.classList.add("open");
 
   const caret = document.createElement("span");
@@ -465,8 +545,9 @@ function renderNode(node) {
   row.appendChild(caret);
 
   const cb = document.createElement("input");
-  cb.type = "checkbox";
-  cb.checked = state.selected.has(node.id);
+  cb.type = state.source === "local" ? "radio" : "checkbox";
+  cb.name = "tree-select";
+  cb.checked = !!isSelected;
   cb.addEventListener("click", (e) => e.stopPropagation());
   cb.addEventListener("change", () => toggleSelected(node.id, node.name));
   row.appendChild(cb);
@@ -524,6 +605,15 @@ async function expandNode(id) {
 }
 
 function toggleSelected(id, name) {
+  if (state.source === "local") {
+    // Local mode: tree clicks set the upload target (single select).
+    state.targetFolder = (state.targetFolder && state.targetFolder.id === id)
+      ? null
+      : { id, name };
+    renderTargetLabel();
+    renderTree();
+    return;
+  }
   if (state.selected.has(id)) {
     state.selected.delete(id);
     state.selectedMeta.delete(id);
@@ -532,7 +622,7 @@ function toggleSelected(id, name) {
     state.selectedMeta.set(id, name);
   }
   renderSelected();
-  document.getElementById("btn-run").disabled = state.selected.size === 0;
+  refreshRunButton();
   document.getElementById("estimate").innerHTML = "";
 }
 
@@ -586,19 +676,38 @@ async function doEstimate() {
 }
 
 async function doRun() {
-  const folders = [...state.selected];
-  if (folders.length === 0) return;
-
   const chunkSizeRaw = parseInt(document.getElementById("chunk-size").value, 10);
   const chunkSize = Number.isFinite(chunkSizeRaw) && chunkSizeRaw >= 0 ? chunkSizeRaw : 2000;
+  const upload = document.getElementById("upload").checked;
+  const overwrite = document.getElementById("overwrite").checked;
+  const maxFiles = parseInt(document.getElementById("max-files").value, 10) || null;
 
-  const body = {
-    folders,
-    max_files: parseInt(document.getElementById("max-files").value, 10) || null,
-    chunk_size: chunkSize,
-    upload: document.getElementById("upload").checked,
-    overwrite: document.getElementById("overwrite").checked,
-  };
+  let body;
+  if (state.source === "drive") {
+    const folders = [...state.selected];
+    if (folders.length === 0) return;
+    body = {
+      source: "drive",
+      folders,
+      max_files: maxFiles,
+      chunk_size: chunkSize,
+      upload,
+      overwrite,
+    };
+  } else {
+    if (!state.localFolder) return;
+    if (upload && !state.targetFolder) {
+      alert("Upload is checked but no Drive target folder is selected. Pick a folder in the tree, or uncheck Upload.");
+      return;
+    }
+    body = {
+      source: "local",
+      local_folder: state.localFolder,
+      target_drive_folder: state.targetFolder ? state.targetFolder.id : "",
+      upload,
+      overwrite,
+    };
+  }
 
   document.getElementById("btn-run").disabled = true;
   document.getElementById("log-viewer").innerHTML = "";
@@ -775,6 +884,50 @@ function humanSize(bytes) {
 document.getElementById("btn-run").addEventListener("click", doRun);
 document.getElementById("btn-estimate").addEventListener("click", doEstimate);
 document.getElementById("btn-cancel").addEventListener("click", doCancel);
+
+for (const el of document.querySelectorAll('input[name="source"]')) {
+  el.addEventListener("change", (e) => setSourceUI(e.target.value));
+}
+
+document.getElementById("local-folder").addEventListener("input", async (e) => {
+  state.localFolder = e.target.value.trim();
+  refreshRunButton();
+  await updateLocalFolderInfo();
+});
+
+document.getElementById("btn-browse").addEventListener("click", async () => {
+  try {
+    const res = await api("/api/browse_folder");
+    if (res.path) {
+      document.getElementById("local-folder").value = res.path;
+      state.localFolder = res.path;
+      refreshRunButton();
+      await updateLocalFolderInfo();
+    }
+  } catch (e) {
+    const info = document.getElementById("local-folder-info");
+    info.textContent = "Folder picker unavailable — paste the path manually.";
+  }
+});
+
+async function updateLocalFolderInfo() {
+  const info = document.getElementById("local-folder-info");
+  if (!state.localFolder) {
+    info.textContent = "";
+    return;
+  }
+  info.textContent = "Checking…";
+  try {
+    const res = await api(`/api/check_folder?path=${encodeURIComponent(state.localFolder)}`);
+    if (res.exists && res.is_dir) {
+      info.innerHTML = `Found <b>${res.image_count}</b> image${res.image_count === 1 ? "" : "s"} in this folder.`;
+    } else {
+      info.textContent = res.error || "Folder not found.";
+    }
+  } catch (e) {
+    info.textContent = "Folder not found or unreadable.";
+  }
+}
 
 loadHealth();
 initTree().catch(e => {

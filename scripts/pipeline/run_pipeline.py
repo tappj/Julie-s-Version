@@ -257,6 +257,8 @@ def run_chunked_auto(args: argparse.Namespace, chunk_paths: list[Path]) -> None:
         upload_cmd = [PYTHON, "scripts/drive_upload/upload_to_drive.py"]
         if args.overwrite:
             upload_cmd += ["--overwrite"]
+        if args.upload_target:
+            upload_cmd += ["--target_folder", args.upload_target]
         run_step("Upload Results to Drive", upload_cmd)
 
 
@@ -329,6 +331,8 @@ def build_steps(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
         upload_cmd = [PYTHON, "scripts/drive_upload/upload_to_drive.py"]
         if args.overwrite:
             upload_cmd += ["--overwrite"]
+        if args.upload_target:
+            upload_cmd += ["--target_folder", args.upload_target]
         steps.append(("Upload Results to Drive", upload_cmd))
 
     return steps
@@ -371,6 +375,10 @@ def main() -> None:
                         help="Upload output CSVs to Google Drive after pipeline completes (production).")
     parser.add_argument("--overwrite", action="store_true",
                         help="Overwrite existing Drive CSVs instead of appending (used with --upload).")
+    parser.add_argument("--upload_target", default=None,
+                        help="Drive folder ID. When set with --upload, every by_location CSV "
+                             "is uploaded to this single folder instead of being mapped via "
+                             "drive_index.csv. Intended for --mode manual where there is no Drive index.")
 
     args = parser.parse_args()
 
@@ -385,9 +393,18 @@ def main() -> None:
             print(f"ERROR: Folder does not exist: {src}")
             sys.exit(2)
         STAGING_DIR.mkdir(parents=True, exist_ok=True)
-        for p in src.glob("*"):
-            if p.is_file():
-                shutil.copy2(p, STAGING_DIR / p.name)
+        copied = 0
+        for p in src.rglob("*"):
+            if not p.is_file():
+                continue
+            if p.suffix.lower() not in {".jpg", ".jpeg", ".png", ".tif", ".tiff"}:
+                continue
+            rel = p.relative_to(src)
+            dst = STAGING_DIR / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(p, dst)
+            copied += 1
+        print(f"Copied {copied} image(s) from {src} → {STAGING_DIR} (preserving subfolder structure).")
 
     if args.mode == "manual":
         copy_staging_backup()

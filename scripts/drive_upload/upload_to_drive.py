@@ -211,9 +211,15 @@ def append_rows_to_drive_csv(drive, file_id: str, new_rows: list[dict], file_mim
     print(f"  Appended {len(rows_to_append)} new rows")
 
 
-def process_camera(drive, camera_name: str, folder_id: str, local_csv: Path, overwrite: bool):
-    """Process one camera: create new CSV or append to existing"""
-    print(f"\nProcessing {camera_name}...")
+def process_camera(drive, camera_name: str, folder_id: str, local_csv: Path, overwrite: bool,
+                   drive_filename: str | None = None):
+    """Process one camera: create new CSV or append to existing.
+
+    drive_filename controls the filename used in Drive. Defaults to DRIVE_CSV_NAME
+    (shared wildlife_results.csv). In --target_folder mode we pass a per-camera
+    filename so multiple cameras can coexist in the same target folder."""
+    target_name = drive_filename or DRIVE_CSV_NAME
+    print(f"\nProcessing {camera_name} → {target_name}...")
 
     # Load new rows from local CSV
     with open(local_csv, "r", encoding="utf-8") as f:
@@ -223,7 +229,7 @@ def process_camera(drive, camera_name: str, folder_id: str, local_csv: Path, ove
     print(f"  Local rows to upload: {len(new_rows)}")
 
     # Check if CSV already exists in Drive
-    existing_file = find_file_in_folder(drive, folder_id, DRIVE_CSV_NAME)
+    existing_file = find_file_in_folder(drive, folder_id, target_name)
 
     if existing_file:
         print(f"  Found existing CSV in Drive (ID: {existing_file['id']})")
@@ -235,13 +241,17 @@ def process_camera(drive, camera_name: str, folder_id: str, local_csv: Path, ove
             print(f"  ✓ Done - appended to existing file")
     else:
         print(f"  No existing CSV found - creating new file...")
-        created = create_csv_in_drive(drive, folder_id, DRIVE_CSV_NAME, new_rows)
+        created = create_csv_in_drive(drive, folder_id, target_name, new_rows)
         print(f"  ✓ Created new CSV (ID: {created['id']}) with {len(new_rows)} rows")
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--target_folder", default=None,
+                        help="Upload all by_location CSVs directly to this Drive folder ID. "
+                             "Skips the drive_index-based site mapping. Each camera CSV is "
+                             "uploaded as <CameraName>_wildlife_results.csv in the target folder.")
     args = parser.parse_args()
 
     if not BY_LOCATION_DIR.exists():
@@ -255,37 +265,50 @@ def main():
     )
     drive = build("drive", "v3", credentials=creds)
 
-    deployment_map = build_camera_deployment_map(DRIVE_INDEX)
-    if not deployment_map:
-        print("WARNING: drive_index.csv not found or empty — cannot determine Drive folder IDs.")
-
-    # Resolve each deployment folder → its site-level parent folder (cache to avoid duplicate API calls)
-    parent_cache: dict[str, str] = {}
-    camera_folders: dict[str, str] = {}
-    for camera_name, dep_folder_id in deployment_map.items():
-        if dep_folder_id not in parent_cache:
-            parent_id = get_parent_folder_id(drive, dep_folder_id)
-            if parent_id:
-                parent_cache[dep_folder_id] = parent_id
-        if dep_folder_id in parent_cache:
-            camera_folders[camera_name] = parent_cache[dep_folder_id]
-
     print("\n" + "=" * 60)
     print("UPLOADING RESULTS TO GOOGLE DRIVE")
     print("=" * 60)
 
-    for local_csv in sorted(BY_LOCATION_DIR.glob("*.csv")):
-        camera_name = local_csv.stem
-        folder_id = camera_folders.get(camera_name)
-        if not folder_id:
-            print(f"\nSkipping {camera_name}: no matching Drive folder found in drive_index.csv")
-            continue
+    if args.target_folder:
+        print(f"Target folder override: {args.target_folder}")
+        print("All per-camera CSVs will be uploaded to this single folder.")
+        for local_csv in sorted(BY_LOCATION_DIR.glob("*.csv")):
+            camera_name = local_csv.stem
+            drive_filename = f"{camera_name}_wildlife_results.csv"
+            try:
+                process_camera(drive, camera_name, args.target_folder, local_csv,
+                               args.overwrite, drive_filename=drive_filename)
+            except HttpError as e:
+                print(f"\nError processing {camera_name}: {e}")
+                continue
+    else:
+        deployment_map = build_camera_deployment_map(DRIVE_INDEX)
+        if not deployment_map:
+            print("WARNING: drive_index.csv not found or empty — cannot determine Drive folder IDs.")
 
-        try:
-            process_camera(drive, camera_name, folder_id, local_csv, args.overwrite)
-        except HttpError as e:
-            print(f"\nError processing {camera_name}: {e}")
-            continue
+        # Resolve each deployment folder → its site-level parent folder (cache to avoid duplicate API calls)
+        parent_cache: dict[str, str] = {}
+        camera_folders: dict[str, str] = {}
+        for camera_name, dep_folder_id in deployment_map.items():
+            if dep_folder_id not in parent_cache:
+                parent_id = get_parent_folder_id(drive, dep_folder_id)
+                if parent_id:
+                    parent_cache[dep_folder_id] = parent_id
+            if dep_folder_id in parent_cache:
+                camera_folders[camera_name] = parent_cache[dep_folder_id]
+
+        for local_csv in sorted(BY_LOCATION_DIR.glob("*.csv")):
+            camera_name = local_csv.stem
+            folder_id = camera_folders.get(camera_name)
+            if not folder_id:
+                print(f"\nSkipping {camera_name}: no matching Drive folder found in drive_index.csv")
+                continue
+
+            try:
+                process_camera(drive, camera_name, folder_id, local_csv, args.overwrite)
+            except HttpError as e:
+                print(f"\nError processing {camera_name}: {e}")
+                continue
 
     print("\n" + "=" * 60)
     print("UPLOAD COMPLETE")

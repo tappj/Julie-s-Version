@@ -334,6 +334,45 @@ def health():
     return jsonify({"ok": True, "drive_root": FOLDER_ID, "max_downloads_default": MAX_DOWNLOADS})
 
 
+@app.get("/api/browse_folder")
+def api_browse_folder():
+    """Open a native folder picker on the machine running the server. Works on
+    macOS/Windows with a display. Headless Linux will return an error."""
+    try:
+        import tkinter
+        from tkinter import filedialog
+        root = tkinter.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        path = filedialog.askdirectory(parent=root, mustexist=True)
+        root.destroy()
+        return jsonify({"path": path or ""})
+    except Exception as e:
+        return jsonify({"path": "", "error": f"Folder picker unavailable: {e}"}), 500
+
+
+@app.get("/api/check_folder")
+def api_check_folder():
+    """Quick existence + image-count check for a local folder path."""
+    path = request.args.get("path", "")
+    if not path:
+        return jsonify({"error": "path is required"}), 400
+    p = Path(path).expanduser()
+    if not p.exists():
+        return jsonify({"exists": False, "error": "not found"}), 404
+    if not p.is_dir():
+        return jsonify({"exists": True, "is_dir": False, "error": "not a directory"}), 400
+
+    exts = {".jpg", ".jpeg", ".png", ".tif", ".tiff"}
+    count = 0
+    for child in p.rglob("*"):
+        if child.is_file() and child.suffix.lower() in exts:
+            count += 1
+            if count >= 100_000:
+                break
+    return jsonify({"exists": True, "is_dir": True, "image_count": count, "path": str(p)})
+
+
 @app.get("/api/folders")
 def api_folders():
     parent = request.args.get("parent") or FOLDER_ID
@@ -423,9 +462,22 @@ def api_folders_count():
 @app.post("/api/run")
 def api_run():
     body = request.get_json(force=True, silent=True) or {}
+    source = (body.get("source") or "drive").lower()
+    if source not in ("drive", "local"):
+        return jsonify({"error": "source must be 'drive' or 'local'"}), 400
+
     folders = body.get("folders") or []
-    if not isinstance(folders, list) or not folders:
-        return jsonify({"error": "folders (list of Drive folder IDs) is required"}), 400
+    local_folder = body.get("local_folder") or ""
+    target_drive_folder = body.get("target_drive_folder") or ""
+
+    if source == "drive":
+        if not isinstance(folders, list) or not folders:
+            return jsonify({"error": "folders (list of Drive folder IDs) is required"}), 400
+    else:
+        if not local_folder:
+            return jsonify({"error": "local_folder (absolute path) is required"}), 400
+        if not Path(local_folder).expanduser().is_dir():
+            return jsonify({"error": f"local_folder does not exist: {local_folder}"}), 400
 
     max_files = body.get("max_files")
     upload = bool(body.get("upload"))
@@ -443,25 +495,30 @@ def api_run():
     run_dir = RUNS_DIR / job_id
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    # Let build_index.py write to the default shared path (data/outputs/drive_index.csv).
-    # make_output.py and upload_to_drive.py both hardcode that path, so routing the
-    # index elsewhere via --out_index would break downstream steps. The snapshot step
-    # at the end of _job_worker copies drive_index.csv into the per-run dir for history.
-    cmd: list[str] = [
-        sys.executable,
-        "scripts/pipeline/run_pipeline.py",
-        "--start_folders", ",".join(str(f) for f in folders),
-    ]
-    if max_files is not None:
-        try:
-            mf = int(max_files)
-            cmd += ["--max_files", str(mf), "--max_downloads", str(mf)]
-        except (TypeError, ValueError):
-            pass
-    if chunk_size > 0:
-        cmd += ["--chunk_size", str(chunk_size)]
+    cmd: list[str] = [sys.executable, "scripts/pipeline/run_pipeline.py"]
+
+    if source == "drive":
+        # Let build_index.py write to the default shared path (data/outputs/drive_index.csv).
+        # make_output.py and upload_to_drive.py both hardcode that path, so routing the
+        # index elsewhere via --out_index would break downstream steps. The snapshot step
+        # at the end of _job_worker copies drive_index.csv into the per-run dir for history.
+        cmd += ["--start_folders", ",".join(str(f) for f in folders)]
+        if max_files is not None:
+            try:
+                mf = int(max_files)
+                cmd += ["--max_files", str(mf), "--max_downloads", str(mf)]
+            except (TypeError, ValueError):
+                pass
+        if chunk_size > 0:
+            cmd += ["--chunk_size", str(chunk_size)]
+    else:
+        # Local mode: skip Drive index/download, stage images from the user's computer.
+        cmd += ["--mode", "manual", "--folder", str(Path(local_folder).expanduser())]
+
     if upload:
         cmd.append("--upload")
+        if source == "local" and target_drive_folder:
+            cmd += ["--upload_target", target_drive_folder]
     if overwrite:
         cmd.append("--overwrite")
 
@@ -476,7 +533,10 @@ def api_run():
         "pid": None,
         "log": [],
         "subscribers": set(),
+        "source": source,
         "folders": folders,
+        "local_folder": local_folder if source == "local" else None,
+        "target_drive_folder": target_drive_folder if source == "local" else None,
         "max_files": max_files,
         "chunk_size": chunk_size,
         "upload": upload,
