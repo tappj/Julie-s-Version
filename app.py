@@ -293,6 +293,7 @@ def _job_worker(job_id: str, cmd: list[str], run_dir: Path) -> None:
             "ended_at": job.get("ended_at"),
             "folders": job.get("folders"),
             "max_files": job.get("max_files"),
+            "chunk_size": job.get("chunk_size"),
             "upload": job.get("upload"),
             "overwrite": job.get("overwrite"),
             "snapshot": snap,
@@ -430,6 +431,14 @@ def api_run():
     upload = bool(body.get("upload"))
     overwrite = bool(body.get("overwrite"))
 
+    chunk_size_raw = body.get("chunk_size", 2000)
+    try:
+        chunk_size = int(chunk_size_raw) if chunk_size_raw is not None else 2000
+    except (TypeError, ValueError):
+        chunk_size = 2000
+    if chunk_size < 0:
+        chunk_size = 0
+
     job_id = uuid.uuid4().hex[:12]
     run_dir = RUNS_DIR / job_id
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -449,6 +458,8 @@ def api_run():
             cmd += ["--max_files", str(mf), "--max_downloads", str(mf)]
         except (TypeError, ValueError):
             pass
+    if chunk_size > 0:
+        cmd += ["--chunk_size", str(chunk_size)]
     if upload:
         cmd.append("--upload")
     if overwrite:
@@ -467,6 +478,7 @@ def api_run():
         "subscribers": set(),
         "folders": folders,
         "max_files": max_files,
+        "chunk_size": chunk_size,
         "upload": upload,
         "overwrite": overwrite,
     }

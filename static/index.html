@@ -331,6 +331,11 @@
         <span class="hint" style="color: var(--muted); font-size: 12px;">per run</span>
       </div>
       <div class="form-row">
+        <label for="chunk-size">Chunk size</label>
+        <input type="number" id="chunk-size" min="0" max="20000" value="2000" />
+        <span class="hint" style="color: var(--muted); font-size: 12px;">imgs / chunk (0 = off)</span>
+      </div>
+      <div class="form-row">
         <label for="upload">Upload to Drive</label>
         <input type="checkbox" id="upload" />
         <label for="overwrite" style="min-width: 0; margin-left: 12px;">Overwrite</label>
@@ -584,9 +589,13 @@ async function doRun() {
   const folders = [...state.selected];
   if (folders.length === 0) return;
 
+  const chunkSizeRaw = parseInt(document.getElementById("chunk-size").value, 10);
+  const chunkSize = Number.isFinite(chunkSizeRaw) && chunkSizeRaw >= 0 ? chunkSizeRaw : 2000;
+
   const body = {
     folders,
     max_files: parseInt(document.getElementById("max-files").value, 10) || null,
+    chunk_size: chunkSize,
     upload: document.getElementById("upload").checked,
     overwrite: document.getElementById("overwrite").checked,
   };

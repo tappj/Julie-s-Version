@@ -32,6 +32,7 @@ python scripts/pipeline/run_pipeline.py
 - `--index <path>` — reuse an existing index CSV (skips re-indexing)
 - `--resume` — resume from checkpoint (both index + download)
 - `--max_files <n>` / `--max_downloads <n>` — per-run overrides of `MAX_DOWNLOADS`
+- `--chunk_size <n>` — process large runs in chunks of N images (0 = off, default for CLI). Only activates if total indexed > N; otherwise single-pass runs unchanged.
 - `--upload` / `--overwrite` — upload results to Drive at end (see below)
 
 **Manual mode (process a local folder of images):**
@@ -104,4 +105,6 @@ All intermediate data flows through CSV/JSON files in `data/outputs/`. The `file
 - **Blank filtering:** `run_inference.py` writes ALL predictions to `ml_outputs.csv`, including blanks (`has_animal=0, species=blank`). This lets `extract_metadata.py` propagate the blank signal into `metadata.csv`, so `make_output.py` can filter them out of the final per-camera CSVs. The final output only contains images with confirmed animal or human detections.
 - **Drive upload deduplication:** Uses compound key `DeploymentFolder|Image#` to skip duplicate rows
 - **Resume support:** `build_index.py` and `download_drive.py` support `--resume` for checkpoint-based continuation
+- **Chunked execution:** When `--chunk_size N` is set and the full index has more than N rows, `run_pipeline.py` splits `drive_index.csv` into `data/outputs/chunks/chunk_NNNN_index.csv` and runs download → manifest → metadata → SpeciesNet → postprocess → inference → merge per chunk. Each chunk's artifacts are archived to `data/outputs/chunks/chunk_NNNN/` and appended to cumulative CSVs. After all chunks, cumulative files are restored to the shared paths and `make_output` + `upload_to_drive` run once on the full result. Staging is cleared between chunks to cap disk use.
+- **Web UI:** `app.py` (Flask, port 5050) serves `static/index.html` — a local folder-picker UI for non-technical users. Passes `--start_folders`, `--max_files`, `--chunk_size` (default 2000), `--upload`/`--overwrite` to `run_pipeline.py` as a subprocess. Per-run snapshots saved under `data/outputs/runs/<job_id>/`.
 - **Drive upload is production:** `scripts/drive_upload/` writes directly to Julie's Drive — do not test without permission

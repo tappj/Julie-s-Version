@@ -110,6 +110,25 @@ This runs all steps in order:
 8. Extract metadata again (merge ML results into metadata.csv)
 9. Generate final output CSVs (per camera, saved to `data/outputs/by_location/`)
 
+### Web UI (local)
+
+A simple local web interface is available for non-technical users. It lets you pick folders from the Drive tree and run the pipeline with a few clicks, no CLI needed.
+
+```bash
+python app.py
+# open http://localhost:5050
+```
+
+### Large batches (chunking)
+
+For runs larger than a few thousand images, pass `--chunk_size N` to process the work in fixed-size chunks. Staging is cleared between chunks so disk usage stays capped. The Web UI sets this to 2000 by default.
+
+```bash
+python scripts/pipeline/run_pipeline.py --chunk_size 2000
+```
+
+Small runs (total images ≤ chunk_size) skip chunking automatically.
+
 ### Upload Results to Google Drive
 
 To also upload the output CSVs to the Google Drive database at the end of the pipeline, add ` --upload`:

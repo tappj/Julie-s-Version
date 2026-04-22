@@ -264,30 +264,28 @@ def build_steps(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
     steps: list[tuple[str, list[str]]] = []
 
     if args.mode == "auto":
-        index_cmd = [PYTHON, "scripts/pipeline/build_index.py"]
-        if args.drive_root:
-            index_cmd += ["--drive_root", args.drive_root]
-        if args.start_folders:
-            index_cmd += ["--start_folders", args.start_folders]
-        if args.out_index:
-            index_cmd += ["--out", args.out_index]
-        if args.per_folder:
-            index_cmd += ["--per_folder"]
-        if args.resume:
-            index_cmd += ["--resume"]
-        if args.max_files is not None:
-            index_cmd += ["--max_files", str(args.max_files)]
+        if not args.index:
+            index_cmd = [PYTHON, "scripts/pipeline/build_index.py"]
+            if args.drive_root:
+                index_cmd += ["--drive_root", args.drive_root]
+            if args.start_folders:
+                index_cmd += ["--start_folders", args.start_folders]
+            if args.out_index:
+                index_cmd += ["--out", args.out_index]
+            if args.per_folder:
+                index_cmd += ["--per_folder"]
+            if args.resume:
+                index_cmd += ["--resume"]
+            if args.max_files is not None:
+                index_cmd += ["--max_files", str(args.max_files)]
+            steps.append(("Index Drive", index_cmd))
 
         download_cmd = [PYTHON, "scripts/pipeline/download_drive.py", "--index", infer_index_path(args)]
         if args.resume:
             download_cmd += ["--resume"]
         if args.max_downloads is not None:
             download_cmd += ["--max_downloads", str(args.max_downloads)]
-
-        steps += [
-            ("Index Drive", index_cmd),
-            ("Download Images", download_cmd),
-        ]
+        steps.append(("Download Images", download_cmd))
 
     if args.mode == "auto":
         steps.append((
@@ -364,6 +362,11 @@ def main() -> None:
     parser.add_argument("--burst_export", default="all", choices=["all", "first", "middle", "last"],
                         help="Which burst images to export in output.")
 
+    parser.add_argument("--chunk_size", type=int, default=0,
+                        help="Split large runs into chunks of this many images. 0 = off. "
+                             "If total indexed > chunk_size, the pipeline processes chunks "
+                             "sequentially to cap disk usage.")
+
     parser.add_argument("--upload", action="store_true",
                         help="Upload output CSVs to Google Drive after pipeline completes (production).")
     parser.add_argument("--overwrite", action="store_true",
@@ -389,10 +392,44 @@ def main() -> None:
     if args.mode == "manual":
         copy_staging_backup()
 
-    steps = build_steps(args)
     start = time.time()
-    for name, cmd in steps:
-        run_step(name, cmd)
+
+    if args.mode == "auto" and args.chunk_size > 0:
+        if not args.index:
+            index_cmd = [PYTHON, "scripts/pipeline/build_index.py"]
+            if args.drive_root:
+                index_cmd += ["--drive_root", args.drive_root]
+            if args.start_folders:
+                index_cmd += ["--start_folders", args.start_folders]
+            if args.out_index:
+                index_cmd += ["--out", args.out_index]
+            if args.per_folder:
+                index_cmd += ["--per_folder"]
+            if args.resume:
+                index_cmd += ["--resume"]
+            if args.max_files is not None:
+                index_cmd += ["--max_files", str(args.max_files)]
+            run_step("Index Drive", index_cmd)
+            args.index = infer_index_path(args)
+
+        total = count_index_rows(Path(args.index))
+        print(f"\nTotal images in index: {total}")
+
+        if total > args.chunk_size:
+            print(f"Chunking activated: {total} > chunk_size {args.chunk_size}")
+            chunk_paths = split_index_into_chunks(Path(args.index), CHUNKS_DIR, args.chunk_size)
+            print(f"Split into {len(chunk_paths)} chunks of up to {args.chunk_size} images each")
+            run_chunked_auto(args, chunk_paths)
+        else:
+            print(f"Below chunk threshold ({args.chunk_size}): running single-pass")
+            steps = build_steps(args)
+            for name, cmd in steps:
+                run_step(name, cmd)
+    else:
+        steps = build_steps(args)
+        for name, cmd in steps:
+            run_step(name, cmd)
+
     elapsed = time.time() - start
     print(f"\nDONE in {elapsed/60:.1f} minutes")
 
