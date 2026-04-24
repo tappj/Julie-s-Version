@@ -336,19 +336,41 @@ def health():
 
 @app.get("/api/browse_folder")
 def api_browse_folder():
-    """Open a native folder picker on the machine running the server. Works on
-    macOS/Windows with a display. Headless Linux will return an error."""
-    try:
-        import tkinter
-        from tkinter import filedialog
-        root = tkinter.Tk()
-        root.withdraw()
-        root.attributes("-topmost", True)
-        path = filedialog.askdirectory(parent=root, mustexist=True)
-        root.destroy()
-        return jsonify({"path": path or ""})
-    except Exception as e:
-        return jsonify({"path": "", "error": f"Folder picker unavailable: {e}"}), 500
+    """Open a native folder picker on the machine running the server.
+
+    macOS: uses osascript (avoids tkinter's main-thread requirement).
+    Windows: uses tkinter (works from Flask threads on Windows).
+    Other: returns an error — users should paste the path manually.
+    """
+    import platform
+    system = platform.system()
+
+    if system == "Darwin":
+        try:
+            result = subprocess.run(
+                ["osascript", "-e", "POSIX path of (choose folder)"],
+                capture_output=True, text=True, timeout=120,
+            )
+            path = result.stdout.strip()
+            return jsonify({"path": path if result.returncode == 0 else ""})
+        except Exception as e:
+            return jsonify({"path": "", "error": f"Folder picker unavailable: {e}"}), 500
+
+    elif system == "Windows":
+        try:
+            import tkinter
+            from tkinter import filedialog
+            root = tkinter.Tk()
+            root.withdraw()
+            root.attributes("-topmost", True)
+            path = filedialog.askdirectory(parent=root, mustexist=True)
+            root.destroy()
+            return jsonify({"path": path or ""})
+        except Exception as e:
+            return jsonify({"path": "", "error": f"Folder picker unavailable: {e}"}), 500
+
+    else:
+        return jsonify({"path": "", "error": "Folder picker not supported — paste the path manually."}), 200
 
 
 @app.get("/api/check_folder")

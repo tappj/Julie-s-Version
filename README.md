@@ -112,12 +112,23 @@ This runs all steps in order:
 
 ### Web UI (local)
 
-A simple local web interface is available for non-technical users. It lets you pick folders from the Drive tree and run the pipeline with a few clicks, no CLI needed.
+A simple local web interface (`app.py`) is available for non-technical users. It lets you pick folders from the Drive tree **or a local folder on your machine** and run the pipeline with a few clicks, no CLI needed.
 
 ```bash
-python app.py
+source .venv311/bin/activate          # activate the virtual environment first
+pip install flask flask-cors          # install once if not already installed
+python3.11 app.py
 # open http://localhost:5050
 ```
+
+The UI supports:
+- **Drive mode** — browse the shared Drive tree and select deployment folders to process
+- **Local mode** — point at a folder on your machine; runs the pipeline in `--mode manual`
+- **Live log streaming** — real-time output from the pipeline subprocess
+- **Job management** — cancel a running job or view past run results
+- **Per-run snapshots** — each run's outputs are archived to `data/outputs/runs/<job_id>/`
+
+> The UI clears all shared pipeline artifacts (`drive_index.csv`, `manifest.csv`, staging, etc.) at the start of each run to prevent stale state from a previous run from contaminating the new one.
 
 ### Large batches (chunking)
 
@@ -300,6 +311,9 @@ After a successful **auto mode** run, `data/staging/` is automatically deleted t
 
 ```
 project/
+├── app.py                               # Flask web UI (port 5050) — folder picker + pipeline runner
+├── static/
+│   └── index.html                       # Single-page UI served by app.py
 ├── scripts/
 │   ├── config.py                        # Shared config (service account, folder ID, MAX_DOWNLOADS)
 │   ├── pipeline/
