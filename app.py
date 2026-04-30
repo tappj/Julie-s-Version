@@ -634,6 +634,12 @@ def api_job_log(job_id: str):
     return Response(stream(), mimetype="text/event-stream")
 
 
+@app.post("/api/clear_cache")
+def api_clear_cache():
+    cleared = _reset_pipeline_state()
+    return jsonify({"ok": True, "cleared": len(cleared), "paths": cleared})
+
+
 @app.post("/api/jobs/<job_id>/cancel")
 def api_job_cancel(job_id: str):
     ok = _cancel_job(job_id)

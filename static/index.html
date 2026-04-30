@@ -308,7 +308,6 @@
   <header class="topbar">
     <span class="badge">UCI Nature</span>
     <h1>Wildlife Pipeline</h1>
-    <span class="env" id="env-label">connecting…</span>
   </header>
 
   <main>
@@ -322,10 +321,10 @@
       <div class="form-row" style="padding: 10px 18px 4px; gap: 16px; border-bottom: 1px solid var(--border);">
         <label style="min-width: 0; font-weight: 500; color: var(--text);">Source</label>
         <label style="min-width: 0; display: flex; align-items: center; gap: 6px; cursor: pointer;">
-          <input type="radio" name="source" value="drive" /> Google Drive
+          <input type="radio" name="source" value="local" checked /> My Computer
         </label>
         <label style="min-width: 0; display: flex; align-items: center; gap: 6px; cursor: pointer;">
-          <input type="radio" name="source" value="local" checked /> My Computer
+          <input type="radio" name="source" value="drive" /> Google Drive
         </label>
       </div>
 
@@ -363,7 +362,7 @@
         <span class="hint" style="color: var(--muted); font-size: 12px;"></span>
       </div>
       <div class="form-row">
-        <label for="upload">"Upload to Drive"</label>
+        <label for="upload">Upload to Drive</label>
         <input type="checkbox" id="upload" />
         <label for="overwrite" style="min-width: 0; margin-left: 12px;">Overwrite</label>
         <input type="checkbox" id="overwrite" />
@@ -376,6 +375,9 @@
           <button class="btn" id="btn-estimate">Estimate size</button>
           <button class="btn btn-primary" id="btn-run" disabled>Run pipeline</button>
           <button class="btn" id="btn-cancel" style="display: none; color: var(--red); border-color: var(--red);">Cancel</button>
+        </div>
+        <div style="margin-top: 8px;">
+          <button class="btn" id="btn-clear-cache" style="display: none; width: 100%; color: var(--muted);">Clear cached data from last run</button>
         </div>
       </div>
     </section>
@@ -478,11 +480,9 @@ async function api(path, opts={}) {
 
 async function loadHealth() {
   try {
-    const h = await api("/api/health");
-    document.getElementById("env-label").textContent =
-      `Drive root • max ${h.max_downloads_default}`;
+    await api("/api/health");
   } catch (e) {
-    document.getElementById("env-label").textContent = "offline";
+    // server unreachable — no visible indicator needed
   }
 }
 
@@ -795,6 +795,7 @@ function streamLog(jobId) {
   const finalize = async (status) => {
     document.getElementById("btn-cancel").style.display = "none";
     document.getElementById("btn-run").disabled = false;
+    document.getElementById("btn-clear-cache").style.display = "block";
     const kindMap = { success: "success", failed: "failed", cancelled: "failed" };
     const labelMap = { success: "Done", failed: "Failed", cancelled: "Cancelled" };
     const detailMap = {
@@ -885,6 +886,18 @@ function humanSize(bytes) {
 document.getElementById("btn-run").addEventListener("click", doRun);
 document.getElementById("btn-estimate").addEventListener("click", doEstimate);
 document.getElementById("btn-cancel").addEventListener("click", doCancel);
+document.getElementById("btn-clear-cache").addEventListener("click", async () => {
+  const btn = document.getElementById("btn-clear-cache");
+  btn.disabled = true;
+  btn.textContent = "Clearing…";
+  try {
+    const res = await api("/api/clear_cache", { method: "POST" });
+    btn.textContent = `Cleared (${res.cleared} items removed)`;
+  } catch (e) {
+    btn.textContent = "Clear failed — try again";
+    btn.disabled = false;
+  }
+});
 
 for (const el of document.querySelectorAll('input[name="source"]')) {
   el.addEventListener("change", (e) => setSourceUI(e.target.value));
