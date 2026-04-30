@@ -219,7 +219,7 @@ def process_camera(drive, camera_name: str, folder_id: str, local_csv: Path, ove
     (shared wildlife_results.csv). In --target_folder mode we pass a per-camera
     filename so multiple cameras can coexist in the same target folder."""
     target_name = drive_filename or DRIVE_CSV_NAME
-    print(f"\nProcessing {camera_name} → {target_name}...")
+    print(f"\nProcessing {camera_name} -> {target_name}...")
 
     # Load new rows from local CSV
     with open(local_csv, "r", encoding="utf-8") as f:
@@ -235,14 +235,14 @@ def process_camera(drive, camera_name: str, folder_id: str, local_csv: Path, ove
         print(f"  Found existing CSV in Drive (ID: {existing_file['id']})")
         if overwrite:
             overwrite_csv_in_drive(drive, existing_file['id'], new_rows)
-            print(f"  ✓ Overwrote existing file")
+            print(f"  [OK] Overwrote existing file")
         else:
             append_rows_to_drive_csv(drive, existing_file['id'], new_rows, existing_file.get('mimeType', 'text/csv'))
-            print(f"  ✓ Done - appended to existing file")
+            print(f"  [OK] Done - appended to existing file")
     else:
         print(f"  No existing CSV found - creating new file...")
         created = create_csv_in_drive(drive, folder_id, target_name, new_rows)
-        print(f"  ✓ Created new CSV (ID: {created['id']}) with {len(new_rows)} rows")
+        print(f"  [OK] Created new CSV (ID: {created['id']}) with {len(new_rows)} rows")
 
 
 def main():
@@ -284,9 +284,9 @@ def main():
     else:
         deployment_map = build_camera_deployment_map(DRIVE_INDEX)
         if not deployment_map:
-            print("WARNING: drive_index.csv not found or empty — cannot determine Drive folder IDs.")
+            print("WARNING: drive_index.csv not found or empty -- cannot determine Drive folder IDs.")
 
-        # Resolve each deployment folder → its site-level parent folder (cache to avoid duplicate API calls)
+        # Resolve each deployment folder -> its site-level parent folder (cache to avoid duplicate API calls)
         parent_cache: dict[str, str] = {}
         camera_folders: dict[str, str] = {}
         for camera_name, dep_folder_id in deployment_map.items():

@@ -546,26 +546,26 @@ def main():
     print(f"  Skipped (blank/vehicle): {total_skipped_blank}")
 
     print(f"\nColumns filled automatically:")
-    print("  ✓ CameraName (from folder structure)")
-    print("  ✓ DeploymentFolder (SD card upload identifier)")
-    print("  ✓ Image# (from filename)")
-    print("  ✓ Date (from EXIF metadata)")
-    print("  ✓ Time (from EXIF metadata)")
+    print("  [+] CameraName (from folder structure)")
+    print("  [+] DeploymentFolder (SD card upload identifier)")
+    print("  [+] Image# (from filename)")
+    print("  [+] Date (from EXIF metadata)")
+    print("  [+] Time (from EXIF metadata)")
 
     print(f"\nMegaDetector results:")
-    print(f"  ✓ has_animal — {animal_count} animals")
-    print(f"  ✓ model_certainty — confidence scores filled")
-    print(f"  ✓ # of Individuals — detection counts filled")
+    print(f"  [+] has_animal -- {animal_count} animals")
+    print(f"  [+] model_certainty -- confidence scores filled")
+    print(f"  [+] # of Individuals -- detection counts filled")
 
     if species_filled > 0:
         print(f"\nSpeciesNet results:")
-        print(f"  ✓ Species — {species_filled}/{total_output} classified")
+        print(f"  [+] Species -- {species_filled}/{total_output} classified")
     else:
         print(f"\nSpecies classification:")
-        print("  ○ Species (run SpeciesNet to fill this column)")
+        print("  [ ] Species (run SpeciesNet to fill this column)")
 
     print(f"\nManual columns:")
-    print("  ○ Notes (human review)")
+    print("  [ ] Notes (human review)")
 
 
 if __name__ == "__main__":

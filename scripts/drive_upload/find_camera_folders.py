@@ -64,7 +64,7 @@ def main():
         if name == "OLD Locations (Deprecated Cameras)":
             sub = list_top_level_folders(drive, folder_id)
             for sf in sub:
-                print(f"     📁 {sf['name']}  |  {sf['id']}")
+                print(f"     [dir] {sf['name']}  |  {sf['id']}")
                 if sf['name'] in CAMERA_NAMES:
                     camera_folders[sf['name']] = sf['id']
 

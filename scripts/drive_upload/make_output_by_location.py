@@ -186,7 +186,7 @@ def main():
             writer.writeheader()
             writer.writerows(rows)
 
-        print(f"✓ {camera}: {len(rows)} rows -> {output_file}")
+        print(f"[OK] {camera}: {len(rows)} rows -> {output_file}")
 
     print(f"\nTotal cameras: {len(by_camera)}")
     print(f"Output directory: {BY_LOCATION_DIR}")

@@ -76,7 +76,7 @@ def main():
     result = subprocess.run(cmd)
 
     if result.returncode != 0:
-        print(f"\n❌ SpeciesNet failed with exit code {result.returncode}")
+        print(f"\n[ERROR] SpeciesNet failed with exit code {result.returncode}")
         print("Troubleshooting:")
         print("  1. Make sure you're in the .venv: source .venv/bin/activate")
         print("  2. Check speciesnet is installed: pip show speciesnet")
@@ -95,7 +95,7 @@ def main():
             label = parse_prediction_label(prediction_str).lower()
             species_counts[label] = species_counts.get(label, 0) + 1
 
-        print(f"\n✓ SpeciesNet complete")
+        print(f"\n[OK] SpeciesNet complete")
         print(f"  Classified: {len(predictions)} images")
         print(f"\n  Species found:")
         for species, count in sorted(species_counts.items(), key=lambda x: -x[1]):

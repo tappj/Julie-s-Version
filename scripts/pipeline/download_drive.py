@@ -250,7 +250,7 @@ def main() -> None:
             if MAX_DOWNLOADS is not None:
                 to_download = to_download[:MAX_DOWNLOADS]
 
-            limit_str = "∞" if MAX_DOWNLOADS is None else str(MAX_DOWNLOADS)
+            limit_str = "(no limit)" if MAX_DOWNLOADS is None else str(MAX_DOWNLOADS)
             max_workers = 16
 
             try:
@@ -275,11 +275,11 @@ def main() -> None:
                             if ok:
                                 downloaded += 1
                                 pbar.update(1)
-                                pbar.set_postfix_str(f"✓{downloaded} ✗{failed} | {short_path}", refresh=True)
+                                pbar.set_postfix_str(f"OK:{downloaded} FAIL:{failed} | {short_path}", refresh=True)
                             else:
                                 failed += 1
                                 pbar.update(1)
-                                pbar.set_postfix_str(f"✓{downloaded} ✗{failed} | FAILED: {short_path}", refresh=True)
+                                pbar.set_postfix_str(f"OK:{downloaded} FAIL:{failed} | FAILED: {short_path}", refresh=True)
 
                             if MAX_DOWNLOADS is not None and downloaded >= MAX_DOWNLOADS:
                                 break

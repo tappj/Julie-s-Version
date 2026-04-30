@@ -404,7 +404,7 @@ def main() -> None:
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(p, dst)
             copied += 1
-        print(f"Copied {copied} image(s) from {src} → {STAGING_DIR} (preserving subfolder structure).")
+        print(f"Copied {copied} image(s) from {src} -> {STAGING_DIR} (preserving subfolder structure).")
 
     if args.mode == "manual":
         copy_staging_backup()
