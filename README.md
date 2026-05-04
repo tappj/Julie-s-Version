@@ -62,9 +62,10 @@ Make sure to 'cd' into this project's root folder before installation
 
 ```bash
 # Create virtual environment (recommended)
-python3.11 -m venv .venv311
-source .venv311/bin/activate  # Linux/Mac
-# or: .venv\Scripts\activate  # Windows
+python -m venv .venv311
+source .venv\Scripts\activate  # Windows
+#or: source .venv311/bin/activate  # Linux/Mac
+
 
 # Install dependencies
 pip install -r requirements/requirements.lock
@@ -117,7 +118,7 @@ A simple local web interface (`app.py`) is available for non-technical users. It
 ```bash
 source .venv311/bin/activate          # activate the virtual environment first
 pip install flask flask-cors          # install once if not already installed
-python3.11 app.py
+python app.py
 # open http://localhost:5050
 ```
 
