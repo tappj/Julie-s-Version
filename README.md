@@ -58,16 +58,86 @@ Automated pipeline that retrieves images from Google Drive, extracts metadata, d
 ```
 
 ## Installation
-Make sure to 'cd' into this project's root folder before installation
+Make sure to `cd` into this project's root folder before installation.
+
+### Windows from Scratch in VS Code
+
+Prerequisites:
+
+- Git for Windows
+- 64-bit Python 3.11
+- VS Code
+- This repo cloned locally and opened in VS Code
+- `secrets/inf191a-uci-nature-sa.json` already present in the repo's `secrets/` folder
+
+Open VS Code's integrated terminal with **Terminal > New Terminal**. Use the default PowerShell terminal, and make sure it starts in this repo's root folder. If it does not, run:
+
+```powershell
+cd path\to\UCI-NATURE
+```
+
+Then run:
+
+```powershell
+# Confirm Python 3.11 is available. The pipeline exits if this is not 3.11.x.
+py -3.11 --version
+
+# Create and activate the virtual environment
+py -3.11 -m venv .venv311
+.\.venv311\Scripts\Activate.ps1
+
+# If PowerShell blocks activation, run this once in the same terminal, then activate again:
+# Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+
+# Install dependencies
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install -r requirements/requirements.lock
+python -m pip install -r requirements/requirements.txt
+
+# Quick dependency check
+python -c "import flask, googleapiclient, PIL, speciesnet, tqdm; print('dependencies ok')"
+```
+
+If `py -3.11` says the Python launcher is not found, use `python` instead, but only after confirming it is Python 3.11:
+
+```powershell
+python --version
+python -m venv .venv311
+.\.venv311\Scripts\Activate.ps1
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install -r requirements/requirements.lock
+python -m pip install -r requirements/requirements.txt
+python -c "import flask, googleapiclient, PIL, speciesnet, tqdm; print('dependencies ok')"
+```
+
+Then start the local UI:
+
+```powershell
+python app.py
+```
+
+Open <http://localhost:5050>. In the UI, choose either:
+
+- **Drive mode** to select folders from the shared Google Drive tree.
+- **Local mode** to process a folder of images already on the Windows computer.
+
+Or run the full Drive pipeline from the terminal:
+
+```powershell
+python scripts/pipeline/run_pipeline.py --chunk_size 2000
+```
+
+Do not add `--upload` unless you are ready to write results back to the production Google Drive.
+
+### macOS / Linux
 
 ```bash
 # Create virtual environment (recommended)
-python -m venv .venv311
-.venv\Scripts\activate  # Windows
-#or: source .venv311/bin/activate  # Linux/Mac
-
+python3.11 -m venv .venv311
+source .venv311/bin/activate  # Linux/Mac
 
 # Install dependencies
+python -m pip install --upgrade pip setuptools wheel
 pip install -r requirements/requirements.lock
 pip install -r requirements/requirements.txt
 ```
@@ -81,6 +151,10 @@ google-auth-httplib2
 google-auth-oauthlib
 pillow
 exifread
+tqdm
+speciesnet
+flask
+flask-cors
 ```
 
 ## Setup
@@ -97,7 +171,8 @@ exifread
 ```bash
 python scripts/pipeline/run_pipeline.py
 ```
-*Try 'python3' if your python version is different.
+
+On Windows, run the same command after activating `.venv311` in PowerShell. Do not use `python3`; use `python` from the activated Python 3.11 environment.
 
 This runs all steps in order:
 
@@ -116,8 +191,15 @@ This runs all steps in order:
 A simple local web interface (`app.py`) is available for non-technical users. It lets you pick folders from the Drive tree **or a local folder on your machine** and run the pipeline with a few clicks, no CLI needed.
 
 ```bash
-source .venv311/bin/activate          # activate the virtual environment first
-pip install flask flask-cors          # install once if not already installed
+source .venv311/bin/activate          # macOS/Linux
+python app.py
+# open http://localhost:5050
+```
+
+Windows PowerShell:
+
+```powershell
+.\.venv311\Scripts\Activate.ps1
 python app.py
 # open http://localhost:5050
 ```
@@ -401,23 +483,48 @@ Julie Ellen Coffey - UCI Campus Reserves Manager
 
 You're running outside the virtual environment or missing the Google Drive client libraries.
 
-Fix:
+Fix on macOS/Linux:
 
 ```bash
 source .venv311/bin/activate
 pip install google-auth google-auth-oauthlib google-auth-httplib2 google-api-python-client
 ```
 
+Fix on Windows PowerShell:
+
+```powershell
+.\.venv311\Scripts\Activate.ps1
+python -m pip install google-auth google-auth-oauthlib google-auth-httplib2 google-api-python-client
+```
+
 ### "No module named 'speciesnet'"
 
 SpeciesNet is not installed in your environment.
 
-Fix:
+Fix on macOS/Linux:
 
 ```bash
 source .venv311/bin/activate
 pip install speciesnet --use-pep517
 ```
+
+Fix on Windows PowerShell:
+
+```powershell
+.\.venv311\Scripts\Activate.ps1
+python -m pip install speciesnet --use-pep517
+```
+
+### PowerShell will not activate `.venv311`
+
+If you see an execution policy error:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv311\Scripts\Activate.ps1
+```
+
+This only changes the execution policy for the current PowerShell window.
 
 ### "drive_index.csv not found"
 

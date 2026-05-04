@@ -4,3 +4,7 @@ google-auth-httplib2
 google-auth-oauthlib
 pillow
 exifread
+tqdm
+speciesnet
+flask
+flask-cors
