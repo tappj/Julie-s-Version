@@ -63,7 +63,7 @@ Make sure to 'cd' into this project's root folder before installation
 ```bash
 # Create virtual environment (recommended)
 python -m venv .venv311
-source .venv\Scripts\activate  # Windows
+.venv\Scripts\activate  # Windows
 #or: source .venv311/bin/activate  # Linux/Mac
 
 
