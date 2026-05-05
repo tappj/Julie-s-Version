@@ -89,7 +89,7 @@ py -3.11 -m venv .venv311
 # If PowerShell blocks activation, run this once in the same terminal, then activate again:
 # Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
-# Install dependencies
+# Install dependencies. Run both lines before running the dependency check.
 python -m pip install --upgrade pip setuptools wheel
 python -m pip install -r requirements/requirements.lock
 python -m pip install -r requirements/requirements.txt
@@ -153,8 +153,8 @@ pillow
 exifread
 tqdm
 speciesnet
-flask
-flask-cors
+Flask==3.1.3
+Flask-Cors==6.0.2
 ```
 
 ## Setup
